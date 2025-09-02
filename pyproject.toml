@@ -124,6 +124,105 @@ smplx = { git = "https://github.com/GuyTevet/smplx.git" }
 
 # Note: Essential PyPI packages are handled automatically from project.dependencies
 
+# =============================================================================
+# Latest Environment - Modern PyTorch and Python versions
+# =============================================================================
+
+[tool.pixi.environments]
+# Environments that inherit from the base (default)
+default = []
+# Independent latest environment (completely isolated with no inheritance)
+latest = { features = ["latest"], solve-group = "latest", no-default-feature = true }
+
+[tool.pixi.feature.latest.dependencies]
+# Python 3.11+ (modern but stable)
+python = ">=3.11.0,<3.13"
+# Keep only essential system-level packages from conda
+ffmpeg = ">=7.1.0"
+
+[tool.pixi.feature.latest.pypi-options]
+# PyTorch CUDA 12.6 wheels require updated index
+extra-index-urls = [
+    "https://download.pytorch.org/whl/cu126"
+]
+# Use best match strategy to consider all indexes
+index-strategy = "unsafe-best-match"
+
+[tool.pixi.feature.latest.pypi-dependencies]
+# Latest PyTorch with CUDA 12.6 support - fixed version 2.7.1
+torch = "==2.7.1+cu126"
+torchvision = "*"
+torchaudio = "*"
+
+# Core scientific computing packages - let PyPI resolve to latest
+numpy = "*"
+scipy = "*"
+matplotlib = "*"
+pandas = "*"
+h5py = "*"
+pillow = "*"
+
+# Utilities and system packages - let PyPI resolve to latest
+pyyaml = "*"
+tqdm = "*"
+requests = "*"
+urllib3 = "*"
+joblib = "*"
+networkx = "*"
+filelock = "*"
+packaging = "*"
+setuptools = "*"
+pip = "*"
+psutil = "*"
+termcolor = "*"
+
+# PyTorch ecosystem - let PyPI resolve to latest
+einops = "*"
+transformers = "*"
+
+# 3D/Graphics dependencies - let PyPI resolve to latest
+imageio = "*"
+pyglet = "*"
+
+# SpaCy and NLP - let PyPI resolve to latest
+spacy = "*"
+
+# Visualization and plotting - let PyPI resolve to latest
+plotly = "*"
+loguru = "*"
+
+# Git-based dependencies (keep same as original)
+clip = { git = "https://github.com/openai/CLIP.git" }
+smplx = { git = "https://github.com/GuyTevet/smplx.git" }
+
+[tool.pixi.feature.latest.tasks]
+# Setup tasks for latest environment
+setup = { cmd = [
+    "python", "-m", "spacy", "download", "en_core_web_sm",
+    "&&", "pip", "install", "--no-build-isolation", "git+https://github.com/mattloper/chumpy"
+], description = "Download SpaCy English model and install chumpy with disabled build isolation (legacy setup.py requires pip during build)" }
+
+# Test CUDA PyTorch installation
+test-cuda = { cmd = [
+    "python", "-c", "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); cuda_ver = torch.version.cuda if torch.cuda.is_available() else 'N/A'; print(f'CUDA version: {cuda_ver}'); print(f'GPU count: {torch.cuda.device_count()}'); gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'; print(f'GPU device: {gpu_name}')"
+], description = "Test PyTorch CUDA 12.6 installation and GPU availability" }
+
+# Quick PyTorch version check
+pytorch-version = { cmd = [
+    "python", "-c", "import torch; print(torch.__version__)"
+], description = "Quick PyTorch version check for latest environment" }
+
+# Generate motion with latest PyTorch
+generate-motion = { cmd = [
+    "python", "-m", "runners.generate", 
+    "--model_path", "./results/babel/FlowMDM/model001300000.pt",
+    "--instructions_file", "./tests/simple-walk/simple_walk_instructions.json",
+    "--num_repetitions", "1",
+    "--bpe_denoising_step", "125",
+    "--guidance_param", "1.5",
+    "--dataset", "babel"
+], description = "Generate motion from text instructions using latest PyTorch", env = { KMP_DUPLICATE_LIB_OK = "TRUE" } }
+
 [tool.pixi.tasks]
 # Setup FlowMDM environment - download SpaCy model and install chumpy (legacy build system)
 setup = { cmd = [
