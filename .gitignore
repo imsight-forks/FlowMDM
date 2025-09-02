@@ -82,6 +82,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Pixi package manager
+.pixi/
+# Note: pixi.lock is committed for reproducible builds
+
 # Spyder project settings
 .spyderproject
 .spyproject

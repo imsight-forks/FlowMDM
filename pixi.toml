@@ -1,0 +1,110 @@
+[project]
+authors = ["German Barquero <gbarquero@cvc.uab.es>", "Contributors"]
+channels = ["conda-forge", "pytorch", "nvidia"]
+name = "flowmdm"
+platforms = ["win-64", "linux-64"]
+version = "1.0.0"
+description = "FlowMDM: Seamless Human Motion Composition with Blended Positional Encodings"
+
+[pypi-options]
+# PyTorch CUDA wheels require custom index
+extra-index-urls = [
+    "https://download.pytorch.org/whl/cu117"
+]
+
+[dependencies]
+python = ">=3.8.0,<3.10"
+numpy = ">=1.23.0,<1.25"
+scipy = ">=1.9.0,<2.0"
+matplotlib = ">=3.8.0,<3.10"
+pandas = ">=1.5.0,<2.0"
+h5py = ">=3.7.0"
+pillow = ">=9.0.0"
+pyyaml = ">=6.0"
+tqdm = ">=4.60.0"
+requests = ">=2.25.0"
+urllib3 = ">=1.26.0,<2.0"
+joblib = ">=1.0.0"
+networkx = ">=3.0"
+filelock = ">=3.6.0"
+packaging = ">=21.0"
+setuptools = ">=60.0.0"
+pip = ">=22.0.0"
+psutil = ">=5.8.0"
+termcolor = ">=2.0.0"
+
+# PyTorch ecosystem
+einops = ">=0.6.0"
+transformers = ">=4.20.0,<5.0"
+
+# 3D/Graphics dependencies  
+imageio = ">=2.25.0"
+pyglet = ">=2.0.0"
+
+# SpaCy and NLP
+spacy = ">=3.4.0,<4.0"
+
+# Visualization and plotting
+plotly = ">=5.0.0"
+loguru = ">=0.7.0"
+ffmpeg = ">=6.1.0,<8"
+
+[pypi-dependencies]
+# PyTorch with CUDA 11.7 support (uses extra-index-url from [pypi-options])
+torch = "==1.13.0+cu117"
+torchvision = "==0.14.0+cu117"
+
+# Git-based dependencies (converted from pip install git+https://...)
+clip = { git = "https://github.com/openai/CLIP.git" }
+smplx = { git = "https://github.com/GuyTevet/smplx.git" }
+# Note: chumpy has legacy setup.py that imports pip during build - incompatible with uv/pixi isolation
+
+# Essential packages not available in conda-forge
+pyrender = ">=0.1.40"
+aitviewer = ">=1.12.0"
+freetype-py = ">=2.3.0"
+blobfile = ">=2.0.0"
+more_itertools = ">=10.0.0"
+
+[tasks]
+# Setup FlowMDM environment - download SpaCy model and install chumpy (legacy build system)
+setup = { cmd = [
+    "python", "-m", "spacy", "download", "en_core_web_sm",
+    "&&", "pip", "install", "git+https://github.com/mattloper/chumpy"
+], description = "Download SpaCy English model and install chumpy (legacy setup.py incompatible with pixi build isolation)" }
+
+# Test CUDA PyTorch installation
+test-cuda = { cmd = [
+    "python", "-c", "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); cuda_ver = torch.version.cuda if torch.cuda.is_available() else 'N/A'; print(f'CUDA version: {cuda_ver}'); print(f'GPU count: {torch.cuda.device_count()}'); gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'; print(f'GPU device: {gpu_name}')"
+], description = "Test PyTorch CUDA installation and GPU availability" }
+
+# Quick PyTorch version check
+pytorch-version = { cmd = [
+    "python", "-c", "import torch; print(torch.__version__)"
+], description = "Quick PyTorch version check" }
+
+# Run FlowMDM generation script
+generate = { cmd = [
+    "python", "-m", "runners.generate", "--help"
+], description = "Run FlowMDM generation script" }
+
+# Generate motion from text instructions
+generate-motion = { cmd = [
+    "python", "-m", "runners.generate", 
+    "--model_path", "./results/babel/FlowMDM/model001300000.pt",
+    "--instructions_file", "./tests/simple-walk/simple_walk_instructions.json",
+    "--num_repetitions", "1",
+    "--bpe_denoising_step", "125",
+    "--guidance_param", "1.5",
+    "--dataset", "babel"
+], description = "Generate motion from text instructions (example with correct parameters)", env = { KMP_DUPLICATE_LIB_OK = "TRUE" } }
+
+# Show available generation options
+help = { cmd = [
+    "python", "-m", "runners.generate", "--help"
+], description = "Show FlowMDM generation options" }
+
+# Generate motion with OpenMP fix
+generate-safe = { cmd = [
+    "python", "-m", "runners.generate"
+], description = "Run FlowMDM generation with OpenMP duplicate library fix", env = { KMP_DUPLICATE_LIB_OK = "TRUE" } }

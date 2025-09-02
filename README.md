@@ -41,25 +41,49 @@ Instead, we address the generation of long, continuous sequences guided by a ser
 
 ## 👩🏻‍🏫 Getting started
 
-This code was tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0 While other versions might work as well, we recommend using this conda environment to avoid any issues.
+This code was tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0. While other versions might work as well, we recommend using the pixi environment manager for reproducible setup across platforms.
 
+### Prerequisites
 
-1. Install ffmpeg (if not already installed):
+[Pixi](https://pixi.sh/) - Modern package manager that replaces conda. Install from [pixi.sh](https://pixi.sh/)
 
+### Installation
+
+**Option 1: Quick Setup (Recommended)**
 ```shell
-sudo apt update
-sudo apt install ffmpeg
+# Install dependencies and setup environment
+pixi run setup
+
+# Test CUDA availability
+pixi run test-cuda
 ```
-For windows use [this](https://www.geeksforgeeks.org/how-to-install-ffmpeg-on-windows/) instead.
 
-2. Setup conda env:
+**Option 2: Manual Step-by-Step**
 ```shell
-conda env create -f environment.yml
-conda activate FlowMDM
-python -m spacy download en_core_web_sm
-pip install git+https://github.com/openai/CLIP.git
-pip install git+https://github.com/GuyTevet/smplx.git
-conda install ffmpeg -y
+# Install pixi environment
+pixi install
+
+# Setup PyTorch with CUDA + additional dependencies  
+pixi run setup
+
+# Generate motion from text
+pixi run generate-motion
+```
+
+> [!IMPORTANT]
+> The setup automatically installs:
+> - PyTorch 1.13.0 with CUDA 11.7 support
+> - The `chumpy` package from git (PyPI version 0.70 has NumPy compatibility issues)
+> - CLIP, SMPLX, and all other dependencies
+> - SpaCy English model for text processing
+
+### Available Commands
+
+```shell
+pixi run help              # Show generation options
+pixi run generate-motion   # Generate sample walking motion  
+pixi run pytorch-version   # Check PyTorch version
+pixi run test-cuda        # Verify CUDA setup
 ```
 
 This [README file](https://github.com/BarqueroGerman/FlowMDM/blob/main/runners/README.md) contains instructions on how to visualize, evaluate, and train the model.

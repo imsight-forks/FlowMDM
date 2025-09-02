@@ -55,7 +55,7 @@ def plot_3d_motion_multicolor(save_path, kinematic_tree, joints, title, dataset,
         ax.set_zlim3d([-radius / 3.0, radius * 2 / 3.0])
         # print(title)
         fig.suptitle(title[0], fontsize=10)
-        ax.grid(b=False)
+        ax.grid(False)
 
     def plot_xzPlane(minx, maxx, miny, minz, maxz):
         ## Plot a plane XZ
@@ -107,8 +107,11 @@ def plot_3d_motion_multicolor(save_path, kinematic_tree, joints, title, dataset,
     data[..., 2] -= data[:, 0:1, 2]
 
     def update(index):
-        ax.lines = []
-        ax.collections = []
+        # Clear previous plots by removing all lines and collections
+        for line in ax.lines[:]:
+            line.remove()
+        for collection in ax.collections[:]:
+            collection.remove()
         ax.view_init(elev=120, azim=-90)
         ax.dist = 7.5
         if len(title) > 1:
@@ -152,7 +155,7 @@ def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, data
         ax.set_zlim3d([-radius / 3.0, radius * 2 / 3.0])
         # print(title)
         fig.suptitle(title[0], fontsize=10)
-        ax.grid(b=False)
+        ax.grid(False)
 
     def plot_xzPlane(minx, maxx, miny, minz, maxz):
         ## Plot a plane XZ
@@ -207,8 +210,11 @@ def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, data
         ax = p3.Axes3D(fig)
         init()
 
-        ax.lines = []
-        ax.collections = []
+        # Clear previous plots by removing all lines and collections
+        for line in ax.lines[:]:
+            line.remove()
+        for collection in ax.collections[:]:
+            collection.remove()
         ax.view_init(elev=120, azim=-90)
         ax.dist = 7.5
         if len(title) > 1:
@@ -248,7 +254,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         ax.set_zlim3d([-radius / 3., radius * 2 / 3.])
         # print(title)
         fig.suptitle(title, fontsize=title_size)
-        ax.grid(b=False)
+        ax.grid(False)
 
     def plot_xzPlane(minx, maxx, miny, minz, maxz):
         ## Plot a plane XZ
@@ -314,8 +320,11 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
 
     def update(index):
         #         print(index)
-        ax.lines = []
-        ax.collections = []
+        # Clear previous plots by removing all lines and collections
+        for line in ax.lines[:]:
+            line.remove()
+        for collection in ax.collections[:]:
+            collection.remove()
         #ax.view_init(elev=0, azim=0)
         ax.view_init(elev=120, azim=-90)
         ax.dist = 7.5
