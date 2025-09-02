@@ -66,6 +66,8 @@ freetype-py = ">=2.3.0"
 blobfile = ">=2.0.0"
 more_itertools = ">=10.0.0"
 ipykernel = ">=6.30.1, <7"
+pyvista = ">=0.46.3, <0.47"
+pyvistaqt = ">=0.11.3, <0.12"
 
 [tasks]
 # Setup FlowMDM environment - download SpaCy model and install chumpy (legacy build system)
