@@ -57,6 +57,9 @@ Additional Outputs (when export flags enabled):
     smpl_params.npy              list[dict] raw SMPLH params (allow_pickle)
             smplx_pose.npy               list[np.ndarray] SMPLX-aligned pose arrays (axis-angle; non-zero via SciPy / NumPy fallback)
     smplx_transl.npy             list[np.ndarray] per-frame root translations (added for locomotion playback)
+    smplx_global_orient.npy      list[np.ndarray] per-frame global orientation axis-angle (T,3) per sample (convenience)
+    smplx_global_orient_mat.npy  list[np.ndarray] per-frame global rotation matrices (T,3,3) per sample
+    smplx_root_transform.npy     list[np.ndarray] per-frame 4x4 root transforms (T,4,4) in original SMPL-X (Z-up) coordinates
     smplx_layout.json            Layout, shapes, metadata
     smplx_vertices_preview.npy   (optional) small vertex subset for quick check
 
@@ -272,6 +275,45 @@ def build_smplx_pose(smpl_params):
               'jaw_pose', 'leye_pose', 'reye_pose']
     
     return pose, layout, {'has_hands': has_hands, 'dims': pose.shape[1]}
+
+
+def axis_angle_to_matrix_batch(aa):
+    """Convert axis-angle (T,3) to rotation matrix (T,3,3).
+
+    Uses SciPy when available, otherwise a NumPy Rodrigues implementation.
+    """
+    if aa is None:
+        return None
+    try:
+        from scipy.spatial.transform import Rotation
+        mats = Rotation.from_rotvec(aa.reshape(-1, 3)).as_matrix().astype(np.float32)
+        return mats.reshape(aa.shape[0], 3, 3)
+    except Exception:
+        # Fallback pure numpy
+        mats = []
+        for v in aa:
+            theta = np.linalg.norm(v)
+            if theta < 1e-8:
+                mats.append(np.eye(3, dtype=np.float32))
+                continue
+            k = v / theta
+            K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]], dtype=np.float32)
+            R = np.eye(3, dtype=np.float32) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+            mats.append(R.astype(np.float32))
+        return np.stack(mats, axis=0)
+
+
+def build_root_transforms(global_orient_aa, transl):
+    """Build per-frame 4x4 root transforms (T,4,4) from global orient axis-angle and translation.
+
+    All in original SMPL-X coordinate system (typically Z-up)."""
+    Rmats = axis_angle_to_matrix_batch(global_orient_aa)
+    T = global_orient_aa.shape[0]
+    transforms = np.tile(np.eye(4, dtype=np.float32), (T, 1, 1))
+    transforms[:, :3, :3] = Rmats
+    if transl is not None:
+        transforms[:, :3, 3] = transl
+    return Rmats, transforms
 
 def feats_to_xyz_with_smpl(sample, dataset, batch_size=1):
     """
@@ -516,9 +558,34 @@ def main():
                 # Also save translations for easier downstream use (list[T,3])
                 smplx_transl = [p['transl'] for p in all_smpl_params]
                 np.save(os.path.join(out_path, 'smplx_transl.npy'), np.array(smplx_transl, dtype=object), allow_pickle=True)
+                # Save global orientations (axis-angle) explicitly for convenience
+                smplx_global_orient = [p['global_orient'] for p in all_smpl_params]
+                np.save(os.path.join(out_path, 'smplx_global_orient.npy'), np.array(smplx_global_orient, dtype=object), allow_pickle=True)
+                # Build and save rotation matrices & 4x4 transforms
+                global_orient_mats = []
+                root_transforms = []
+                for p in all_smpl_params:
+                    mats, tfms = build_root_transforms(p['global_orient'], p['transl'])
+                    global_orient_mats.append(mats)
+                    root_transforms.append(tfms)
+                np.save(os.path.join(out_path, 'smplx_global_orient_mat.npy'), np.array(global_orient_mats, dtype=object), allow_pickle=True)
+                np.save(os.path.join(out_path, 'smplx_root_transform.npy'), np.array(root_transforms, dtype=object), allow_pickle=True)
                 with open(os.path.join(out_path, 'smplx_layout.json'), 'w') as f:
-                    json.dump({'layout': layout, 'meta': meta, 'num_samples': len(smplx_poses)}, f, indent=2)
-                print('[info] Saved SMPLX-compatible poses to smplx_pose.npy (and smplx_transl.npy)')
+                    json.dump({
+                        'layout': layout,
+                        'meta': meta,
+                        'num_samples': len(smplx_poses),
+                        'files': {
+                            'pose': 'smplx_pose.npy',
+                            'transl': 'smplx_transl.npy',
+                            'global_orient': 'smplx_global_orient.npy',
+                            'global_orient_mat': 'smplx_global_orient_mat.npy',
+                            'root_transform': 'smplx_root_transform.npy'
+                        },
+                        'coordinate_system': 'SMPL-X original (Z-up)',
+                        'notes': 'Root transforms are 4x4 matrices combining global orientation & translation in Z-up. For Y-up viewers rotate -90deg about X.'
+                    }, f, indent=2)
+                print('[info] Saved SMPLX-compatible poses (+ transl, global orient, matrices, root transforms)')
                 
                 # Optional validation with SMPLX model
                 if args.smplx_model_path:

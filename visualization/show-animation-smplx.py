@@ -48,12 +48,11 @@ Recommended Environment:
         pixi run -e latest python visualization/show-animation-smplx.py <RESULT_DIR> --smplx-model-path ../../data
 """
 
-import contextlib
 import pathlib
 import argparse
 import json
 import os.path as osp
-from typing import Union, Optional, Dict, Tuple, List, Any
+from typing import Optional, Dict, List, Any
 
 import numpy as np
 import pyvista as pv
@@ -112,7 +111,7 @@ class FlowMDMSMPLXAnimator:
         Status text actor for efficient text updates
     """
     
-    def __init__(self, smplx_pose_data, smplx_model_path: str, gender: str = 'neutral', smplx_transl_data: Optional[np.ndarray] = None) -> None:
+    def __init__(self, smplx_pose_data, smplx_model_path: str, gender: str = 'neutral', smplx_transl_data: Optional[np.ndarray] = None, to_y_up: bool = True) -> None:
         """Initialize the FlowMDM SMPLX animator with pose data and model.
         
         Sets up the 3D scene, SMPLX model, mesh geometry, and animation controls.
@@ -159,6 +158,11 @@ class FlowMDMSMPLXAnimator:
 
         # Initialize SMPLX model
         self._init_smplx_model(smplx_model_path, gender)
+        self.apply_y_up = to_y_up
+        if self.apply_y_up:
+            print('[info] Converting SMPLX Z-up output to Y-up (rotate -90 deg about X) to match FlowMDM skeleton viewer')
+        else:
+            print('[info] Keeping original SMPLX Z-up coordinates')
 
         # Plotter (Qt background)
         self.plotter = pvqt.BackgroundPlotter(  # type: ignore[attr-defined]
@@ -232,15 +236,14 @@ class FlowMDMSMPLXAnimator:
                 use_pca=False,
                 flat_hand_mean=False
             )
-            print(f"[info] SMPLX model loaded successfully")
+            print("[info] SMPLX model loaded successfully")
             
         except ImportError:
             raise ImportError(
-                "SMPLX package is required for mesh visualization. "
-                "Install with: pip install smplx"
+                "SMPLX package is required for mesh visualization. Install with: pip install smplx"
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to load SMPLX model: {e}")
+            raise RuntimeError(f"Failed to load SMPLX model: {e}") from None
             
     def _process_pose_data(self, smplx_pose_data) -> np.ndarray:
         """Process and validate pose data format.
@@ -287,7 +290,7 @@ class FlowMDMSMPLXAnimator:
                             # Flat object array
                             pose_data = np.array(list(smplx_pose_data.flat), dtype=np.float32)
                     except Exception as e2:
-                        raise ValueError(f"Could not convert object array to numeric data: {e2}")
+                        raise ValueError(f"Could not convert object array to numeric data: {e2}") from None
         elif isinstance(smplx_pose_data, list):
             # Convert list to single array - take first sequence
             pose_data = np.array(smplx_pose_data[0]) if smplx_pose_data else np.zeros((1, 165))
@@ -396,7 +399,7 @@ class FlowMDMSMPLXAnimator:
         if self.smplx_transl_data is not None:
             print(f"[info] Translation data available: {self.smplx_transl_data.shape[0]} frames")
         else:
-            print(f"[info] No translation data - character will remain at origin")
+            print("[info] No translation data - character will remain at origin")
             
     def _parse_pose_frame(self, frame_index: int) -> Dict[str, torch.Tensor]:
         """Parse SMPLX pose parameters for a single frame.
@@ -517,6 +520,14 @@ class FlowMDMSMPLXAnimator:
                 )
         
         vertices = output.vertices[0].cpu().numpy()  # (N, 3)
+        if self.apply_y_up:
+            # Rotate -90 deg about X: (x, y, z)_Zup -> (x, z, -y)_Yup (vertices only)
+            x = vertices[:, 0].copy()
+            y = vertices[:, 1].copy()
+            z = vertices[:, 2].copy()
+            vertices[:, 0] = x
+            vertices[:, 1] = z
+            vertices[:, 2] = -y
         faces = self.smplx_model.faces.astype(np.int32)  # (F, 3)
         
         # Create PyVista mesh
@@ -558,6 +569,13 @@ class FlowMDMSMPLXAnimator:
             return
         
         vertices = output.vertices[0].cpu().numpy()
+        if self.apply_y_up:
+            x = vertices[:, 0].copy()
+            y = vertices[:, 1].copy()
+            z = vertices[:, 2].copy()
+            vertices[:, 0] = x
+            vertices[:, 1] = z
+            vertices[:, 2] = -y
         
         # Update mesh points in place
         pts = self.mesh_poly.points
@@ -613,6 +631,7 @@ if __name__ == "__main__":
     parser.add_argument("--autoplay", action="store_true", help="Start playing immediately instead of paused")
     parser.add_argument("--fps", type=int, default=30, help="Target playback FPS (default 30)")
     parser.add_argument("--gender", choices=['neutral', 'male', 'female'], default='neutral', help="SMPLX model gender")
+    parser.add_argument("--keep-z-up", action='store_true', help="Do not rotate SMPLX output; keep original Z-up coordinates")
     parser.add_argument("--transl-file", help="Path to translation file (smplx_transl.npy) for root locomotion. If not provided, will try to auto-discover smplx_transl.npy in same directory as pose data")
     args = parser.parse_args()
 
@@ -667,7 +686,7 @@ if __name__ == "__main__":
         print(f"Layout: {result_info.get('layout', 'N/A')}")
         print(f"Metadata: {result_info.get('meta', 'N/A')}")
     
-    animator = FlowMDMSMPLXAnimator(smplx_pose_data, args.smplx_model_path, args.gender, smplx_transl_data)
+    animator = FlowMDMSMPLXAnimator(smplx_pose_data, args.smplx_model_path, args.gender, smplx_transl_data, to_y_up=not args.keep_z_up)
     animator.fps = float(args.fps)
     
     if args.autoplay:
