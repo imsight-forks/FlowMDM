@@ -52,7 +52,7 @@ import pathlib
 import argparse
 import json
 import os.path as osp
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 
 import numpy as np
 import pyvista as pv
@@ -66,6 +66,40 @@ smplx_transl_data: Optional[np.ndarray] = None
 result_info: Optional[Dict] = None
 smplx_result_file: Optional[pathlib.Path] = None
 input_path: Optional[pathlib.Path] = None
+
+
+"""T2M skeleton metadata reused for overlay visualization."""
+
+# Joint names (for potential labeling expansion later)
+t2m_joint_names: dict[int, str] = {
+    0: "Pelvis",
+    1: "L.Hip", 2: "R.Hip", 3: "Spine1",
+    4: "L.Knee", 5: "R.Knee", 6: "Spine2",
+    7: "L.Ankle", 8: "R.Ankle", 9: "Spine3",
+    10: "L.Foot", 11: "R.Foot", 12: "Neck",
+    13: "L.Collar", 14: "R.Collar", 15: "Head",
+    16: "L.Shoulder", 17: "R.Shoulder",
+    18: "L.Elbow", 19: "R.Elbow",
+    20: "L.Wrist", 21: "R.Wrist"
+}
+
+# Kinematic chains as in HumanML3D / Babel (indices)
+t2m_kinematic_chain: list[list[int]] = [
+    [0, 2, 5, 8, 11],      # Right leg
+    [0, 1, 4, 7, 10],      # Left leg
+    [0, 3, 6, 9, 12, 15],  # Spine
+    [9, 14, 17, 19, 21],   # Right arm
+    [9, 13, 16, 18, 20]    # Left arm
+]
+
+def build_skeleton_pairs(chains: list[list[int]]) -> list[Tuple[int,int]]:
+    pairs: list[Tuple[int,int]] = []
+    for chain in chains:
+        for i in range(len(chain)-1):
+            pairs.append((chain[i], chain[i+1]))
+    return pairs
+
+skeleton_pairs = build_skeleton_pairs(t2m_kinematic_chain)
 
 
 class FlowMDMSMPLXAnimator:
@@ -111,7 +145,7 @@ class FlowMDMSMPLXAnimator:
         Status text actor for efficient text updates
     """
     
-    def __init__(self, smplx_pose_data, smplx_model_path: str, gender: str = 'neutral', smplx_transl_data: Optional[np.ndarray] = None, to_y_up: bool = True) -> None:
+    def __init__(self, smplx_pose_data, smplx_model_path: str, gender: str = 'neutral', smplx_transl_data: Optional[np.ndarray] = None, to_y_up: bool = True, skeleton_motion: Optional[np.ndarray] = None) -> None:
         """Initialize the FlowMDM SMPLX animator with pose data and model.
         
         Sets up the 3D scene, SMPLX model, mesh geometry, and animation controls.
@@ -164,6 +198,20 @@ class FlowMDMSMPLXAnimator:
         else:
             print('[info] Keeping original SMPLX Z-up coordinates')
 
+        # Optional FlowMDM skeleton motion (shape: (batch,22,3,seq_len))
+        self.skeleton_motion = None
+        self.skeleton_frame_count = 0
+        if skeleton_motion is not None:
+            try:
+                if skeleton_motion.ndim != 4 or skeleton_motion.shape[1:3] != (22,3):
+                    print(f"[warn] Skeleton motion has unexpected shape {skeleton_motion.shape}; expected (B,22,3,T). Ignoring.")
+                else:
+                    self.skeleton_motion = skeleton_motion
+                    self.skeleton_frame_count = skeleton_motion.shape[-1]
+                    print(f"[info] Loaded skeleton overlay: {self.skeleton_frame_count} frames")
+            except Exception as e:  # pragma: no cover - defensive
+                print(f"[warn] Failed to prepare skeleton overlay: {e}")
+
         # Plotter (Qt background)
         self.plotter = pvqt.BackgroundPlotter(  # type: ignore[attr-defined]
             title="FlowMDM SMPLX Mesh Animation - Full Body",
@@ -181,6 +229,40 @@ class FlowMDMSMPLXAnimator:
             smooth_shading=True,
             opacity=0.9
         )
+
+        # Build skeleton PolyData if available
+        self.skeleton_poly = None
+        self.skeleton_actor = None
+        if self.skeleton_motion is not None:
+            self.skeleton_poly = self._build_skeleton_polydata(0)
+            self.skeleton_actor = self.plotter.add_mesh(  # type: ignore[attr-defined]
+                self.skeleton_poly,
+                color=[0.2, 0.4, 0.8],
+                line_width=3.0,
+                render_lines_as_tubes=True,
+                point_size=12,
+                render_points_as_spheres=True,
+                name='flowmdm_skeleton'
+            )
+            try:
+                skel_root0 = self.skeleton_motion[0,0,:,0]
+                mesh_vertices = self.mesh_poly.points
+                mesh_root0 = mesh_vertices.mean(axis=0)
+                skel_ankles = 0.5*(self.skeleton_motion[0,7,:,0] + self.skeleton_motion[0,8,:,0])
+                skel_leg_len = float(np.linalg.norm(skel_root0 - skel_ankles))
+                mesh_min_y = float(mesh_vertices[:,1].min())
+                mesh_pelvis_y = float(np.percentile(mesh_vertices[:,1], 60))
+                approx_mesh_leg = mesh_pelvis_y - mesh_min_y
+                if approx_mesh_leg > 1e-6:
+                    scale_ratio = approx_mesh_leg / (skel_leg_len + 1e-8)
+                    print(f"[diag] Skeleton root: {skel_root0} | Mesh mean: {mesh_root0}")
+                    print(f"[diag] Leg length (skel {skel_leg_len:.3f} m vs mesh {approx_mesh_leg:.3f} m) ratio={scale_ratio:.3f}")
+                    if not np.isclose(scale_ratio,1.0,atol=0.15):
+                        print('[diag] => Scale mismatch indicates canonical rig difference (T2M vs SMPLX).')
+                if self.smplx_transl_data is not None:
+                    print(f"[diag] First SMPLX transl {self.smplx_transl_data[0]} (already applied to vertices)")
+            except Exception as e:
+                print(f"[diag] Failed diagnostics: {e}")
 
         # Status text actor - Create VTK text actor directly for guaranteed efficient updates
         self.vtk_text_actor = vtk.vtkTextActor()
@@ -312,34 +394,31 @@ class FlowMDMSMPLXAnimator:
         return pose_data
         
     def _process_translation_data(self, smplx_transl_data) -> Optional[np.ndarray]:
-        """Process translation data format.
-        
-        Parameters
-        ----------
-        smplx_transl_data : various
-            Input translation data
-            
-        Returns
-        -------
-        Optional[np.ndarray]
-            Processed translation data with shape (seq_len, 3) or None
-        """
+        """Process translation data to (T,3) float32 or None."""
         if smplx_transl_data is None:
             return None
-            
-        # Convert to numpy array if needed
         if isinstance(smplx_transl_data, list):
-            transl_data: np.ndarray = np.array(smplx_transl_data, dtype=np.float32)
+            transl_data: np.ndarray = np.array(smplx_transl_data, dtype=object)
         else:
-            transl_data = smplx_transl_data.astype(np.float32)
-            
-        # Ensure proper shape
+            transl_data = smplx_transl_data
+        if isinstance(transl_data, np.ndarray) and transl_data.dtype == object:
+            try:
+                stacked = []
+                for elem in transl_data:
+                    arr = np.asarray(elem, dtype=np.float32)
+                    if arr.shape != (3,):
+                        raise ValueError
+                    stacked.append(arr)
+                transl_data = np.vstack(stacked)
+            except Exception:
+                print('[warn] Failed to parse object translation array; ignoring translations')
+                return None
+        else:
+            transl_data = transl_data.astype(np.float32)
         if transl_data.ndim == 1:
             transl_data = transl_data.reshape(1, -1)
         elif transl_data.ndim == 3:
-            # Take first batch if batched
             transl_data = transl_data[0]
-            
         return transl_data
         
     def _validate_data(self) -> None:
@@ -373,18 +452,15 @@ class FlowMDMSMPLXAnimator:
                 )
                 
         # Detect static sequences (warn if all frames identical)
-        if self.smplx_pose_data.shape[0] > 1:
-            if np.allclose(self.smplx_pose_data[0], self.smplx_pose_data[-1], atol=1e-6):
-                # Check if all frames are identical
-                all_identical = True
-                for i in range(1, min(10, self.smplx_pose_data.shape[0])):
-                    if not np.allclose(self.smplx_pose_data[0], self.smplx_pose_data[i], atol=1e-6):
-                        all_identical = False
-                        break
-                        
-                if all_identical:
-                    print("[warn] Pose sequence appears to be static (all frames identical). "
-                          "Check export pipeline if motion was expected.")
+        if self.smplx_pose_data.shape[0] > 1 and np.allclose(self.smplx_pose_data[0], self.smplx_pose_data[-1], atol=1e-6):
+            # Check if all frames identical (sample up to first 10)
+            all_identical = True
+            for i in range(1, min(10, self.smplx_pose_data.shape[0])):
+                if not np.allclose(self.smplx_pose_data[0], self.smplx_pose_data[i], atol=1e-6):
+                    all_identical = False
+                    break
+            if all_identical:
+                print("[warn] Pose sequence appears to be static (all frames identical). Check export pipeline if motion was expected.")
                     
         # Check for NaN or Inf values
         if np.any(~np.isfinite(self.smplx_pose_data)):
@@ -540,6 +616,33 @@ class FlowMDMSMPLXAnimator:
         
         return poly
 
+    # --- Skeleton helpers -------------------------------------------------
+    def _build_skeleton_polydata(self, frame_index: int) -> pv.PolyData:
+        """Create skeleton PolyData for a given frame index.
+
+        The FlowMDM motion is Y-up. If we are keeping SMPLX Z-up (no rotation applied
+        to mesh) we rotate skeleton points to Z-up so both overlap.
+        """
+        assert self.skeleton_motion is not None
+        frame_index = max(0, min(frame_index, self.skeleton_frame_count - 1))
+        joints = self.skeleton_motion[0, :, :, frame_index].copy()  # (22,3)
+        if not self.apply_y_up:
+            # Convert Y-up skeleton to Z-up: (x,y,z)_Y -> (x,-z,y)_Z
+            x = joints[:,0].copy()
+            y = joints[:,1].copy()
+            z = joints[:,2].copy()
+            joints[:,0] = x
+            joints[:,1] = -z
+            joints[:,2] = y
+        # Build line cells
+        line_cells: list[int] = []
+        for a,b in skeleton_pairs:
+            line_cells.extend([2,a,b])
+        poly = pv.PolyData()
+        poly.points = joints
+        poly.lines = np.array(line_cells)
+        return poly
+
     def render_frame(self, frame_index: int) -> None:
         """Render a specific animation frame with efficient geometry updates.
         
@@ -581,9 +684,29 @@ class FlowMDMSMPLXAnimator:
         pts = self.mesh_poly.points
         np.copyto(pts, vertices)
         self.mesh_poly.points = pts
+
+        # Update skeleton overlay if present
+        if self.skeleton_motion is not None and self.skeleton_poly is not None:
+            skel_frame = frame_index
+            if skel_frame >= self.skeleton_frame_count:
+                skel_frame = self.skeleton_frame_count - 1
+            joints = self.skeleton_motion[0, :, :, skel_frame]
+            if not self.apply_y_up:
+                # Convert Y-up skeleton to Z-up (x,y,z)->(x,-z,y)
+                x = joints[:,0].copy()
+                y = joints[:,1].copy()
+                z = joints[:,2].copy()
+                joints_conv = joints.copy()
+                joints_conv[:,0] = x
+                joints_conv[:,1] = -z
+                joints_conv[:,2] = y
+                joints = joints_conv
+            skel_pts = self.skeleton_poly.points
+            np.copyto(skel_pts, joints)
+            self.skeleton_poly.points = skel_pts
         
         # Update status text
-        status = f"F {frame_index}/{self.total_frames-1} | {'Play' if self.is_playing else 'Pause'} | SMPLX Mesh"
+        status = f"F {frame_index}/{self.total_frames-1} | {'Play' if self.is_playing else 'Pause'} | SMPLX Mesh + Skeleton"
         self.vtk_text_actor.SetInput(status)
         self.plotter.render()  # type: ignore[attr-defined]
 
@@ -633,6 +756,7 @@ if __name__ == "__main__":
     parser.add_argument("--gender", choices=['neutral', 'male', 'female'], default='neutral', help="SMPLX model gender")
     parser.add_argument("--keep-z-up", action='store_true', help="Do not rotate SMPLX output; keep original Z-up coordinates")
     parser.add_argument("--transl-file", help="Path to translation file (smplx_transl.npy) for root locomotion. If not provided, will try to auto-discover smplx_transl.npy in same directory as pose data")
+    parser.add_argument("--results-motion", help="Optional explicit path to FlowMDM results.npy to overlay 22-joint skeleton (auto-discover if not provided)")
     args = parser.parse_args()
 
     input_path = pathlib.Path(args.results_path)
@@ -685,8 +809,40 @@ if __name__ == "__main__":
     if result_info:
         print(f"Layout: {result_info.get('layout', 'N/A')}")
         print(f"Metadata: {result_info.get('meta', 'N/A')}")
+
+    # Attempt to load FlowMDM skeleton motion for overlay
+    skeleton_motion = None
+    results_paths: list[pathlib.Path] = []
+    if args.results_motion:
+        rp = pathlib.Path(args.results_motion)
+        if rp.exists():
+            results_paths.append(rp)
+        else:
+            print(f"[warn] Provided --results-motion not found: {rp}")
+    # Auto-discover logic (search sibling directory of smplx_pose)
+    if not results_paths:
+        candidate_results = smplx_result_file.parent / 'results.npy'
+        if candidate_results.exists():
+            results_paths.append(candidate_results)
+        else:
+            # Try one level up (common layout: .../FlowMDM/<run>/smplx_pose.npy)
+            parent_candidate = smplx_result_file.parent.parent / 'results.npy'
+            if parent_candidate.exists():
+                results_paths.append(parent_candidate)
+    if results_paths:
+        try:
+            res_file = results_paths[0]
+            res_dict = np.load(res_file, allow_pickle=True).item()
+            motion = res_dict.get('motion')
+            if isinstance(motion, np.ndarray) and motion.ndim == 4 and motion.shape[1:3] == (22,3):
+                skeleton_motion = motion
+                print(f"[info] Loaded FlowMDM skeleton motion from {res_file} with shape {motion.shape}")
+            else:
+                print(f"[warn] results.npy loaded but motion shape incompatible for overlay: {getattr(motion,'shape',None)}")
+        except Exception as e:  # pragma: no cover
+            print(f"[warn] Failed to load skeleton motion: {e}")
     
-    animator = FlowMDMSMPLXAnimator(smplx_pose_data, args.smplx_model_path, args.gender, smplx_transl_data, to_y_up=not args.keep_z_up)
+    animator = FlowMDMSMPLXAnimator(smplx_pose_data, args.smplx_model_path, args.gender, smplx_transl_data, to_y_up=not args.keep_z_up, skeleton_motion=skeleton_motion)
     animator.fps = float(args.fps)
     
     if args.autoplay:
