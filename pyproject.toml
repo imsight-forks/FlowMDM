@@ -284,6 +284,14 @@ generate-motion-ex = { cmd = [
     "--smplx-model-path", "../../data"
 ], description = "Generate motion with SMPL/SMPLX export (extended version with additional outputs)", env = { KMP_DUPLICATE_LIB_OK = "TRUE" } }
 
+# Show SMPLX mesh animation from generated results
+show-motion-ex = { cmd = [
+    "pixi", "run", "-e", "latest", "python", "visualization/show-animation-smplx.py",
+    "results/babel/flowmdm/001300000_s10_simple_walk_instructions",
+    "--smplx-model-path", "../../data",
+    "--autoplay"
+], description = "Show interactive SMPLX mesh animation from generated motion results (uses latest env for PyVista+Qt)", env = { KMP_DUPLICATE_LIB_OK = "TRUE" } }
+
 # Show available generation options
 help = { cmd = [
     "python", "-m", "runners.generate", "--help"

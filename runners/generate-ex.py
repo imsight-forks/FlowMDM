@@ -54,10 +54,11 @@ Added CLI Arguments (new in generate-ex):
                           If provided & smplx installed, validates poses via forward pass
 
 Additional Outputs (when export flags enabled):
-  smpl_params.npy          list[dict] raw SMPLH params (allow_pickle)
-  smplx_pose.npy           list[np.ndarray] SMPLX-aligned pose arrays
-  smplx_layout.json        Layout, shapes, metadata
-  smplx_vertices_preview.npy  (optional) small vertex subset for quick check
+    smpl_params.npy              list[dict] raw SMPLH params (allow_pickle)
+            smplx_pose.npy               list[np.ndarray] SMPLX-aligned pose arrays (axis-angle; non-zero via SciPy / NumPy fallback)
+    smplx_transl.npy             list[np.ndarray] per-frame root translations (added for locomotion playback)
+    smplx_layout.json            Layout, shapes, metadata
+    smplx_vertices_preview.npy   (optional) small vertex subset for quick check
 
 Usage Examples:
 --------------
@@ -130,16 +131,8 @@ def extend_args():
 
 
 def matrix_to_axis_angle(matrix):
-    """Convert rotation matrix to axis-angle representation."""
-    import torch
-    from pytorch3d.transforms import matrix_to_axis_angle as m2aa
-    if isinstance(matrix, np.ndarray):
-        matrix = torch.from_numpy(matrix).float()
-    # matrix is [N, 3, 3]
-    axis_angle = m2aa(matrix)
-    if isinstance(axis_angle, torch.Tensor):
-        axis_angle = axis_angle.numpy()
-    return axis_angle
+    """Deprecated helper (kept for compatibility). Not used; pytorch3d removed."""
+    raise RuntimeError("matrix_to_axis_angle helper is deprecated (pytorch3d removed)")
 
 def extract_smpl_params(datastruct):
     """Extract SMPL parameters from SlimSMPLDatastruct."""
@@ -168,29 +161,68 @@ def extract_smpl_params(datastruct):
         left_hand_pose_mat = None
         right_hand_pose_mat = None
     
-    # Convert matrices to axis-angle
+    # Convert matrices to axis-angle - SciPy first, NumPy Rodrigues fallback
     try:
-        from pytorch3d.transforms import matrix_to_axis_angle
-        import torch
-        
-        def mat2aa(mat):
+        from scipy.spatial.transform import Rotation
+
+        def mat2aa_scipy(mat):
             if mat is None:
                 return None
-            mat_torch = torch.from_numpy(mat).float()
-            aa = matrix_to_axis_angle(mat_torch)
-            return aa.numpy()
-        
-        global_orient = mat2aa(global_orient_mat)  # [T, 3]
-        body_pose = mat2aa(body_pose_mat.reshape(-1, 3, 3)).reshape(body_pose_mat.shape[0], -1)  # [T, 63]
-        left_hand_pose = mat2aa(left_hand_pose_mat.reshape(-1, 3, 3)).reshape(left_hand_pose_mat.shape[0], -1) if left_hand_pose_mat is not None else None  # [T, 45]
-        right_hand_pose = mat2aa(right_hand_pose_mat.reshape(-1, 3, 3)).reshape(right_hand_pose_mat.shape[0], -1) if right_hand_pose_mat is not None else None  # [T, 45]
-    except ImportError:
-        print("[warn] pytorch3d not available, using placeholder axis-angle values")
-        T = global_orient_mat.shape[0]
-        global_orient = np.zeros((T, 3), dtype=np.float32)
-        body_pose = np.zeros((T, 63), dtype=np.float32)
-        left_hand_pose = np.zeros((T, 45), dtype=np.float32) if has_hands else None
-        right_hand_pose = np.zeros((T, 45), dtype=np.float32) if has_hands else None
+            shape = mat.shape
+            flat = mat.reshape(-1, 3, 3)
+            aa = Rotation.from_matrix(flat).as_rotvec().astype(np.float32)
+            return aa.reshape(shape[:-2] + (3,))
+
+        global_orient = mat2aa_scipy(global_orient_mat)
+        body_pose = mat2aa_scipy(body_pose_mat).reshape(body_pose_mat.shape[0], -1)
+        left_hand_pose = mat2aa_scipy(left_hand_pose_mat).reshape(left_hand_pose_mat.shape[0], -1) if left_hand_pose_mat is not None else None
+        right_hand_pose = mat2aa_scipy(right_hand_pose_mat).reshape(right_hand_pose_mat.shape[0], -1) if right_hand_pose_mat is not None else None
+        print("[info] Using scipy.spatial.transform.Rotation for matrix->axis-angle conversion")
+    except Exception:
+        def rodrigues_numpy(mat):
+            if mat is None:
+                return None
+            flat = mat.reshape(-1, 3, 3)
+            aa_list = []
+            for R in flat:
+                R = R.astype(np.float64)
+                trace = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
+                theta = np.arccos(trace)
+                if theta < 1e-8:
+                    aa_list.append(np.zeros(3, dtype=np.float32))
+                    continue
+                if np.pi - theta < 1e-4:
+                    w = np.array([
+                        np.sqrt(max(0, (R[0, 0] + 1) / 2.0)),
+                        np.sqrt(max(0, (R[1, 1] + 1) / 2.0)),
+                        np.sqrt(max(0, (R[2, 2] + 1) / 2.0)),
+                    ])
+                    w[0] = np.copysign(w[0], R[2, 1] - R[1, 2])
+                    w[1] = np.copysign(w[1], R[0, 2] - R[2, 0])
+                    w[2] = np.copysign(w[2], R[1, 0] - R[0, 1])
+                    axis = w / (np.linalg.norm(w) + 1e-8)
+                else:
+                    axis = np.array([
+                        R[2, 1] - R[1, 2],
+                        R[0, 2] - R[2, 0],
+                        R[1, 0] - R[0, 1],
+                    ]) / (2 * np.sin(theta))
+                aa_list.append((axis * theta).astype(np.float32))
+            aa = np.stack(aa_list, axis=0)
+            return aa.reshape(mat.shape[:-2] + (3,))
+
+        global_orient = rodrigues_numpy(global_orient_mat)
+        body_pose = rodrigues_numpy(body_pose_mat).reshape(body_pose_mat.shape[0], -1)
+        left_hand_pose = rodrigues_numpy(left_hand_pose_mat).reshape(left_hand_pose_mat.shape[0], -1) if left_hand_pose_mat is not None else None
+        right_hand_pose = rodrigues_numpy(right_hand_pose_mat).reshape(right_hand_pose_mat.shape[0], -1) if right_hand_pose_mat is not None else None
+        print("[info] Using pure NumPy Rodrigues fallback for matrix->axis-angle conversion (SciPy missing)")
+
+    # Debug ranges (first few frames) to ensure not all zeros
+    try:
+        print(f"       global_orient frame0: {global_orient[0]}")
+        print(f"       body_pose norm frame0: {np.linalg.norm(body_pose[0]):.4f}")
+    except Exception:
+        pass
     
     # Default betas (shape parameters) - assumed constant
     betas = np.zeros(10, dtype=np.float32)
@@ -481,9 +513,12 @@ def main():
                     smplx_poses.append(pose)
                 
                 np.save(os.path.join(out_path, 'smplx_pose.npy'), np.array(smplx_poses, dtype=object), allow_pickle=True)
+                # Also save translations for easier downstream use (list[T,3])
+                smplx_transl = [p['transl'] for p in all_smpl_params]
+                np.save(os.path.join(out_path, 'smplx_transl.npy'), np.array(smplx_transl, dtype=object), allow_pickle=True)
                 with open(os.path.join(out_path, 'smplx_layout.json'), 'w') as f:
                     json.dump({'layout': layout, 'meta': meta, 'num_samples': len(smplx_poses)}, f, indent=2)
-                print(f'[info] Saved SMPLX-compatible poses to smplx_pose.npy')
+                print('[info] Saved SMPLX-compatible poses to smplx_pose.npy (and smplx_transl.npy)')
                 
                 # Optional validation with SMPLX model
                 if args.smplx_model_path:
@@ -492,7 +527,7 @@ def main():
                     validation = validate_with_smplx(all_smpl_params[0], args.smplx_model_path)
                     
                     if validation['success']:
-                        print(f'[info] SMPLX validation successful!')
+                        print('[info] SMPLX validation successful!')
                         print(f'       Vertices shape: {validation["vertices_shape"]}')
                         print(f'       Joints shape: {validation["joints_shape"]}')
                         # Save preview vertices
