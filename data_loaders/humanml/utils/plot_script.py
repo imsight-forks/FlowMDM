@@ -1,10 +1,11 @@
 import math
 import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-import mpl_toolkits.mplot3d.axes3d as p3
+# IMPORTANT: backend must be selected BEFORE importing pyplot to avoid blank frames (see BUG-matplotlib-rendering.md)
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.animation import FuncAnimation  # noqa: E402
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection  # noqa: E402
 # import cv2
 from textwrap import wrap
 
@@ -77,8 +78,8 @@ def plot_3d_motion_multicolor(save_path, kinematic_tree, joints, title, dataset,
 
 
     fig = plt.figure(figsize=figsize)
-    plt.tight_layout()
-    ax = p3.Axes3D(fig)
+    ax = fig.add_subplot(111, projection='3d')
+    fig.tight_layout()
     init()
     MINS = data.min(axis=0).min(axis=0)
     MAXS = data.max(axis=0).max(axis=0)
@@ -132,10 +133,8 @@ def plot_3d_motion_multicolor(save_path, kinematic_tree, joints, title, dataset,
         ax.set_zticklabels([])
 
     ani = FuncAnimation(fig, update, frames=frame_number, interval=1000 // fps, repeat=False)
-
     ani.save(save_path, fps=fps)
-
-    plt.close()
+    plt.close(fig)
 
 
 def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, dataset, figsize=(3, 3), fps=120, radius=3, vis_mode="default", frame_colors=[]):
@@ -206,11 +205,10 @@ def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, data
         if title[index] not in ["sit down", "stand up"]:
             continue
         fig = plt.figure(figsize=figsize)
-        plt.tight_layout()
-        ax = p3.Axes3D(fig)
+        ax = fig.add_subplot(111, projection='3d')
+        fig.tight_layout()
         init()
-
-        # Clear previous plots by removing all lines and collections
+        # Clear previous plots by removing all lines and collections (fresh figure: mostly no-op)
         for line in ax.lines[:]:
             line.remove()
         for collection in ax.collections[:]:
@@ -219,16 +217,10 @@ def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, data
         ax.dist = 7.5
         if len(title) > 1:
             fig.suptitle(title[index], fontsize=10)
-        #plot_xzPlane(MINS[0] - trajec[index, 0], MAXS[0] - trajec[index, 0], 0, MINS[2] - trajec[index, 2], MAXS[2] - trajec[index, 2])
-
         used_colors = colors_dict[frame_colors[index]] if (index < len(frame_colors)) else colors_dict["blue"]
         for i, (chain, color) in enumerate(zip(kinematic_tree, used_colors)):
-            if i < 5:
-                linewidth = 4.0
-            else:
-                linewidth = 2.0
+            linewidth = 4.0 if i < 5 else 2.0
             ax.plot3D(data[index, chain, 0], data[index, chain, 1], data[index, chain, 2], linewidth=linewidth, color=color)
-        
         plt.axis("off")
         ax.set_xticklabels([])
         ax.set_yticklabels([])
@@ -236,9 +228,7 @@ def plot_3d_motion_multicolor_pdf(save_path, kinematic_tree, joints, title, data
         import os
         os.makedirs(save_path.replace(".mp4", "/pdf"), exist_ok=True)
         plt.savefig(save_path.replace(".mp4", "/pdf") + str(index) + ".pdf")
-        # clear the figure
-        plt.clf()
-        plt.close()
+        plt.close(fig)
 
 
 def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3, 3), fps=120, radius=3, vis_mode='default', gt_frames=[]):
@@ -289,8 +279,8 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         data *= 1.3  # scale for visualization
 
     fig = plt.figure(figsize=figsize)
-    plt.tight_layout()
-    ax = p3.Axes3D(fig)
+    ax = fig.add_subplot(111, projection='3d')
+    fig.tight_layout()
     init()
     MINS = data.min(axis=0).min(axis=0)
     MAXS = data.max(axis=0).max(axis=0)
@@ -357,10 +347,5 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         ax.set_zticklabels([])
 
     ani = FuncAnimation(fig, update, frames=frame_number, interval=1000 / fps, repeat=False)
-
-    # writer = FFMpegFileWriter(fps=fps)
     ani.save(save_path, fps=fps)
-    # ani = FuncAnimation(fig, update, frames=frame_number, interval=1000 / fps, repeat=False, init_func=init)
-    # ani.save(save_path, writer='pillow', fps=1000 / fps)
-
-    plt.close()
+    plt.close(fig)
