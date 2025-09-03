@@ -41,7 +41,18 @@ Instead, we address the generation of long, continuous sequences guided by a ser
 
 ## 👩🏻‍🏫 Getting started
 
-This code was tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0. While other versions might work as well, we recommend using the pixi environment manager for reproducible setup across platforms.
+This code was originally tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0 (the "default" / legacy environment). A modern "latest" pixi environment is also provided with recent Python (3.11+) and PyTorch (2.7.x CUDA 12.6). For new work, prototyping, or interactive visualization we recommend using the latest environment; use the default environment only when strict reproduction of the original paper setup is required.
+
+### Environments (legacy vs latest)
+
+| Env | Purpose | Python | PyTorch | CUDA | Activate / Run Prefix |
+|-----|---------|--------|---------|------|-----------------------|
+| default | Reproduce paper, legacy deps | 3.8/3.9 | 1.13.0+cu117 | 11.7 | `pixi run <task>` |
+| latest  | Modern development & visualization | 3.11+ | 2.7.1+cu126 | 12.6 | `pixi run -e latest <task>` |
+
+Recommendations:
+* Use `-e latest` for faster sampling, improved tooling, and interactive PyVista animations.
+* Use plain tasks (no `-e latest`) only if you must replicate legacy numerical results.
 
 ### Prerequisites
 
@@ -49,7 +60,7 @@ This code was tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0. While 
 
 ### Installation
 
-**Option 1: Quick Setup (Recommended)**
+**Option 1: Quick Setup (Legacy / Paper Reproduction)**
 ```shell
 # Install dependencies and setup environment
 pixi run setup
@@ -58,7 +69,19 @@ pixi run setup
 pixi run test-cuda
 ```
 
-**Option 2: Manual Step-by-Step**
+**Option 2: Modern (Latest) Environment**
+```shell
+# Create & install latest environment (solves lock + installs)
+pixi install -e latest
+
+# One‑time setup: SpaCy model + chumpy (installed via task)
+pixi run -e latest setup
+
+# (Optional) Verify GPU
+pixi run -e latest test-cuda
+```
+
+**Option 3: Manual Step-by-Step (Legacy)**
 ```shell
 # Install pixi environment
 pixi install
@@ -77,7 +100,7 @@ pixi run generate-motion
 > - CLIP, SMPLX, and all other dependencies
 > - SpaCy English model for text processing
 
-### Available Commands
+### Available Commands (Legacy)
 
 ```shell
 pixi run help              # Show generation options
@@ -86,7 +109,46 @@ pixi run pytorch-version   # Check PyTorch version
 pixi run test-cuda        # Verify CUDA setup
 ```
 
+### Available Commands (Latest)
+
+```shell
+pixi run -e latest help              # Show generation options
+pixi run -e latest generate-motion   # Generate sample walking motion (modern stack)
+pixi run -e latest pytorch-version   # Check PyTorch version (latest env)
+pixi run -e latest test-cuda         # Verify CUDA setup (latest env)
+```
+
 This [README file](https://github.com/BarqueroGerman/FlowMDM/blob/main/runners/README.md) contains instructions on how to visualize, evaluate, and train the model.
+
+## 🕹 Interactive Visualization
+
+An interactive PyVista / Qt utility is provided to inspect generated motion results:
+
+`visualization/show-animation.py`
+
+Usage:
+
+```shell
+# After generating results (creates a directory with results.npy)
+pixi run -e latest python visualization/show-animation.py results/babel/FlowMDM/<RESULT_DIR> --autoplay
+
+# Or point directly to a results.npy file
+pixi run -e latest python visualization/show-animation.py results/babel/FlowMDM/<RESULT_DIR>/results.npy
+
+# Custom playback FPS (defaults: 30 for Babel, 20 for HumanML3D)
+pixi run -e latest python visualization/show-animation.py <RESULT_DIR> --fps 24
+```
+
+Controls:
+* Space: Play/Pause
+* Left / Right: Step one frame
+* r: Reset to frame 0
+* q: Quit window
+
+Notes:
+* Provide either the directory containing `results.npy` or the file path itself.
+* Prefer the `latest` environment for smoother real‑time interaction and modern PyVista.
+* The utility performs in‑place point updates for efficient rendering of long sequences.
 
 > [!NOTE]
 > This repository inherits a lot of work from the original MDM and Guided-Diffusion repositories. Most of FlowMDM's contribution can be found in the `model/FlowMDM.py` and  `diffusion/diffusion_wrappers.py` files, and the `model/x_transformers` folder.
