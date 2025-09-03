@@ -41,7 +41,7 @@ Instead, we address the generation of long, continuous sequences guided by a ser
 
 ## 👩🏻‍🏫 Getting started
 
-This code was originally tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0 (the "default" / legacy environment). A modern "latest" pixi environment is also provided with recent Python (3.11+) and PyTorch (2.7.x CUDA 12.6). For new work, prototyping, or interactive visualization we recommend using the latest environment; use the default environment only when strict reproduction of the original paper setup is required.
+This code was originally tested on Ubuntu 20.04.6 LTS + Python 3.8 + PyTorch 1.13.0 (the "default" / legacy environment). A modern "latest" pixi environment is also provided with recent Python (3.11+) and PyTorch (2.7.x CUDA 12.6), tested on both Ubuntu and Windows 11. For new work, prototyping, or interactive visualization we recommend using the latest environment; use the default environment only when strict reproduction of the original paper setup is required.
 
 ### Environments (legacy vs latest)
 
